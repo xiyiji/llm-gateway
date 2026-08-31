@@ -28,7 +28,8 @@ async def worker(client, url, method, n, latencies, errors, unique):
             query = random.choice(QUERIES)
             if unique:
                 query = f"{query} #{random.randint(0, 10**9)}"
-            payload = {"query": query, "user_id": f"load-{i}", "user_tier": random.choice(["free", "premium"])}
+            payload = {"model": "auto",
+                       "messages": [{"role": "user", "content": query}]}
             start = time.perf_counter()
             try:
                 resp = await client.post(url, json=payload)

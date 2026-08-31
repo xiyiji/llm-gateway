@@ -160,13 +160,34 @@ export DEEPSEEK_API_KEY=sk-...
 
 Switch policies live: `POST /admin/routers/v2_learned`.
 
-## Honest limits
+Deployment guide: [DEPLOY.md](DEPLOY.md). Full test data:
+[docs/TEST-REPORT.md](docs/TEST-REPORT.md).
 
-The eval suite demonstrates
-the method and grows cheaply as more traffic is collected. One provider
-family is wired up (DeepSeek's OpenAI-compatible API); adding OpenAI or
-Anthropic tiers is a provider subclass plus config. Auth and per-client
-budgets are not built.
+## How this project came to be
+
+This gateway is the third project in a deliberate progression, and each one
+was built on the last:
+
+1. **[llm-router-platform](https://github.com/xiyiji/llm-router-platform)**,
+   the software engineering foundation: a three-phase FastAPI routing
+   platform with a sandboxed rule engine, multi-factor scoring, provider
+   fallback, SLO monitoring and a live dashboard, deployed and load-tested.
+   This is where the request-routing idea was born, with hand-written rules.
+2. **[llm-project](https://github.com/xiyiji/llm-project)**, the applied AI
+   engineering step: the routing idea grew into a three-tier model cascade
+   inside a real business workflow (last-mile delivery exceptions), with
+   RAG over an operations playbook, hard policy guardrails over LLM output,
+   prompt-injection defense, an idempotent event-queue worker layer, and a
+   ground-truth evaluation harness.
+3. **This gateway**, the ML engineering and agents step: routing stops being
+   hand-written and becomes a trained artifact, first supervised, then
+   optimized with PPO against a quality-minus-cost objective, benchmarked
+   generation against generation, and proven on an agent workload where it
+   cut cost by two thirds at equal accuracy.
+
+Read in order, the three repos cover the full arc: backend engineering, to
+production AI systems with guardrails and evaluation, to learned policies
+and reinforcement learning serving agent traffic.
 
 Stack: Python, FastAPI, numpy (PPO implemented from scratch), scikit-learn,
 SQLite, Streamlit, pytest, GitHub Actions, Docker.
