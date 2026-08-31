@@ -47,10 +47,14 @@ reply = client.chat.completions.create(model="auto", messages=[...])
 
 Per request it: picks small or large via the active routing policy, falls
 back to the other tier if the call fails, serves repeats from an LRU+TTL
-cache, prices the call from actual token usage, and returns the routing
+cache (streamed responses populate it too, and cache hits replay as a
+stream), prices the call from actual token usage, and returns the routing
 verdict in a `gateway` field on the response so every decision is
-inspectable. `/admin/metrics` aggregates spend by model, decision and
-router; `/admin/routers` hot-swaps the routing policy at runtime.
+inspectable. `stream: true` gives standard SSE chunks. With auth enabled,
+each client key gets a name and a daily budget: unknown keys get 401,
+exhausted budgets get 429, and `/admin/metrics` breaks spend down per key,
+which is exactly the "cost per team" answer finance asks for.
+`/admin/routers` hot-swaps the routing policy at runtime.
 
 ## Four generations of routing policy
 
@@ -136,7 +140,7 @@ offline loop: evalsuite -> collect_results (once, $0.05)
 Repo map: `gateway/` (api, providers, routers, features, PPO, metrics),
 `evalsuite/` (tasks, verification), `scripts/` (collect, train, benchmark,
 agent demo, load test), `console.py` (Streamlit: traffic, benchmark, agent
-demo), `tests/` (14 offline tests, CI on push).
+demo), `tests/` (20 offline tests, CI on push).
 
 ## Run it
 
@@ -158,7 +162,7 @@ Switch policies live: `POST /admin/routers/v2_learned`.
 
 ## Honest limits
 
-Streaming responses are not implemented yet. The eval suite demonstrates
+The eval suite demonstrates
 the method and grows cheaply as more traffic is collected. One provider
 family is wired up (DeepSeek's OpenAI-compatible API); adding OpenAI or
 Anthropic tiers is a provider subclass plus config. Auth and per-client

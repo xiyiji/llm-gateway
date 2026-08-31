@@ -38,6 +38,16 @@ class CacheConfig(BaseModel):
     ttl_seconds: int = 3600
 
 
+class KeySpec(BaseModel):
+    name: str
+    daily_budget_usd: float = 1.0
+
+
+class AuthConfig(BaseModel):
+    enabled: bool = False
+    keys: Dict[str, KeySpec] = Field(default_factory=dict)
+
+
 class GatewayConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8020
@@ -49,6 +59,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     router: RouterConfig = Field(default_factory=RouterConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
 
 
 @lru_cache(maxsize=1)

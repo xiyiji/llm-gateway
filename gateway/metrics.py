@@ -20,9 +20,12 @@ CREATE TABLE IF NOT EXISTS usage (
     input_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
     cost_usd REAL NOT NULL,
-    latency_ms INTEGER NOT NULL
+    latency_ms INTEGER NOT NULL,
+    api_key TEXT NOT NULL DEFAULT ''
 );
 """
+
+_MIGRATIONS = ("ALTER TABLE usage ADD COLUMN api_key TEXT NOT NULL DEFAULT ''",)
 
 
 class UsageStore:
@@ -32,6 +35,11 @@ class UsageStore:
         self._lock = threading.Lock()
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
+            for migration in _MIGRATIONS:
+                try:
+                    conn.execute(migration)
+                except sqlite3.OperationalError:
+                    pass
 
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -40,15 +48,23 @@ class UsageStore:
 
     def record(self, *, router: str, decision: str, model: str, cached: bool,
                fallback_used: bool, input_tokens: int, output_tokens: int,
-               cost_usd: float, latency_ms: int) -> None:
+               cost_usd: float, latency_ms: int, api_key: str = "") -> None:
         with self._lock, self._conn() as conn:
             conn.execute(
                 "INSERT INTO usage (ts, router, decision, model, cached, fallback_used,"
-                " input_tokens, output_tokens, cost_usd, latency_ms)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " input_tokens, output_tokens, cost_usd, latency_ms, api_key)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (time.time(), router, decision, model, int(cached), int(fallback_used),
-                 input_tokens, output_tokens, cost_usd, latency_ms),
+                 input_tokens, output_tokens, cost_usd, latency_ms, api_key),
             )
+
+    def spend_since(self, api_key: str, since_ts: float) -> float:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0.0) s FROM usage"
+                " WHERE api_key = ? AND ts >= ?", (api_key, since_ts),
+            ).fetchone()
+        return float(row["s"])
 
     def summary(self) -> Dict:
         with self._conn() as conn:
@@ -73,6 +89,12 @@ class UsageStore:
                 r["router"]: r["c"]
                 for r in conn.execute("SELECT router, COUNT(*) c FROM usage GROUP BY router")
             }
+            by_key = {
+                (r["api_key"] or "anonymous"): {"requests": r["c"], "cost_usd": round(r["cost"], 6)}
+                for r in conn.execute(
+                    "SELECT api_key, COUNT(*) c, SUM(cost_usd) cost FROM usage GROUP BY api_key"
+                )
+            }
         return {
             "requests": total,
             "total_cost_usd": round(row["cost"] or 0.0, 6),
@@ -82,6 +104,7 @@ class UsageStore:
             "by_model": by_model,
             "by_decision": by_decision,
             "by_router": by_router,
+            "by_key": by_key,
         }
 
     def clear(self) -> None:

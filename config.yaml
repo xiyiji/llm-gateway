@@ -28,3 +28,8 @@ cache:
   enabled: true
   max_entries: 1024
   ttl_seconds: 3600
+
+auth:
+  enabled: false
+  # keys:
+  #   sk-team-a: {name: "team-a", daily_budget_usd: 5.0}

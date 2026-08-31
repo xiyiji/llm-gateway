@@ -150,3 +150,40 @@ class DeepSeekProvider:
             text, spec.name, False, latency_ms, input_tokens, output_tokens,
             price_for(tier, input_tokens, output_tokens),
         )
+
+    def stream_chat(self, tier: str, messages: List[Dict],
+                    temperature: Optional[float] = None,
+                    max_tokens: Optional[int] = None):
+        """Start a streamed completion. Connection errors raise ProviderError
+        here (so the caller can fall back before any bytes are sent); the
+        returned iterator yields {"delta": str} events and one final
+        {"usage": {...}} event. The cache key is returned so the caller can
+        store the accumulated text for future non-streamed hits."""
+        ok, reason = self.available()
+        if not ok:
+            raise ProviderError(reason)
+        spec = get_config().models[tier]
+        temperature = self.cfg.temperature if temperature is None else temperature
+        max_tokens = max_tokens or self.cfg.max_tokens
+        key = ResponseCache.key_for(spec.name, messages, temperature)
+        try:
+            stream = self._sdk().chat.completions.create(
+                model=spec.name, messages=messages, temperature=temperature,
+                max_tokens=max_tokens, stream=True,
+                stream_options={"include_usage": True},
+            )
+        except Exception as exc:
+            raise ProviderError(f"{type(exc).__name__}: {exc}") from exc
+
+        def events():
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                    yield {"delta": chunk.choices[0].delta.content}
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    yield {"usage": {
+                        "input": getattr(usage, "prompt_tokens", 0) or 0,
+                        "output": getattr(usage, "completion_tokens", 0) or 0,
+                    }}
+
+        return events(), spec.name, key
