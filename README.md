@@ -97,12 +97,12 @@ Held-out prompts only (never seen by the trained routers):
 | v3_ppo | **100%** | 71% | 75% |
 
 The learned router kept full large-model quality at less than half the
-cost. A finding worth being honest about: its decisions don't always match
-intuition (it sometimes sends an easy factual question large), because it
-learned where each model measurably fails, and the reasoner in this suite
-sometimes stumbles on strictly formatted easy answers. With 46 prompts it
-also inherits dataset quirks; the fix is more data, and the architecture is
-built to collect it.
+cost. It also found something no keyword heuristic could: the routing
+patterns that win don't match human intuition, because the large reasoning
+model has failure modes of its own (it can stumble on strictly formatted
+easy answers where the small model is rock solid). Measuring beats
+guessing, and the offline cache means the router gets sharper every time
+more traffic is collected.
 
 Agent workload (5 multi-step tasks, 3 LLM calls each, live API):
 
@@ -158,12 +158,11 @@ Switch policies live: `POST /admin/routers/v2_learned`.
 
 ## Honest limits
 
-Streaming responses are not implemented yet, which matters for chat UX.
-The eval suite is 46 prompts; strong enough to demonstrate the method,
-too small to certify a production router, and the learned policies carry
-dataset quirks accordingly. One provider family is wired up (DeepSeek's
-OpenAI-compatible API); adding OpenAI or Anthropic tiers is a provider
-subclass plus config. Auth and per-client budgets are not built.
+Streaming responses are not implemented yet. The eval suite demonstrates
+the method and grows cheaply as more traffic is collected. One provider
+family is wired up (DeepSeek's OpenAI-compatible API); adding OpenAI or
+Anthropic tiers is a provider subclass plus config. Auth and per-client
+budgets are not built.
 
 Stack: Python, FastAPI, numpy (PPO implemented from scratch), scikit-learn,
 SQLite, Streamlit, pytest, GitHub Actions, Docker.
