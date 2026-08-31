@@ -1,0 +1,30 @@
+gateway:
+  host: "0.0.0.0"
+  port: 8020
+
+models:
+  small:
+    name: "deepseek-chat"
+    pricing_per_1m: {input: 0.27, output: 1.10}
+    avg_latency_ms: 1500
+  large:
+    name: "deepseek-reasoner"
+    pricing_per_1m: {input: 0.55, output: 2.19}
+    avg_latency_ms: 9000
+
+llm:
+  base_url: "https://api.deepseek.com"
+  api_key_env: "DEEPSEEK_API_KEY"
+  timeout_s: 120
+  temperature: 0.0
+  max_tokens: 1024
+
+router:
+  active: "v1_score"
+  # reward = quality - lambda * cost_usd_scaled; used by the v3 PPO policy
+  quality_cost_lambda: 2.0
+
+cache:
+  enabled: true
+  max_entries: 1024
+  ttl_seconds: 3600
