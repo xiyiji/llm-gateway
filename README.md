@@ -3,6 +3,13 @@
 One OpenAI-compatible endpoint that sends every request to the cheapest model
 that can handle it, proves the quality held up, and shows you the bill.
 
+This repo is the application-routing layer of a three-repo serving stack:
+beneath it, [llm-serving-platform](https://github.com/xiyiji/llm-serving-platform)
+handles engine routing, micro-batching, prefix caching and release operations,
+and [InferenceGateway](https://github.com/xiyiji/InferenceGateway) runs the
+GPU engine itself (Ray Serve + vLLM). Each layer speaks the OpenAI API, so
+they compose by pointing one's backend URL at the next.
+
 ## The problem this solves
 
 Every company that adopts LLMs at scale runs into the same three walls within
