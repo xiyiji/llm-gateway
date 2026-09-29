@@ -48,6 +48,27 @@ class AuthConfig(BaseModel):
     keys: Dict[str, KeySpec] = Field(default_factory=dict)
 
 
+class OnlineEvalConfig(BaseModel):
+    """Live-traffic evaluation. Off by default: it spends money (a second
+    model call plus a judge call per sampled request)."""
+    enabled: bool = False
+    sample_rate: float = 0.05
+    warmup_per_category: int = 20
+    judge_tier: str = "large"
+    judge_budget_usd: float = 5.0        # hard cap on counterfactual + judge spend
+    queue_max: int = 1000
+    guard_enabled: bool = True
+    guard_threshold: float = 0.80        # min small-model win rate per category
+    guard_window: int = 50
+    guard_min_samples: int = 20
+    guard_recover_margin: float = 0.05
+    shadow_routers: list = Field(default_factory=list)
+    log_every: int = 25
+    tracker: str = "auto"                # auto | mlflow | jsonl
+    mlflow_tracking_uri: str = ""        # default: sqlite file under var/
+    mlflow_experiment: str = "llm-gateway-online-eval"
+
+
 class GatewayConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8020
@@ -60,6 +81,7 @@ class AppConfig(BaseModel):
     router: RouterConfig = Field(default_factory=RouterConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    online_eval: OnlineEvalConfig = Field(default_factory=OnlineEvalConfig)
 
 
 @lru_cache(maxsize=1)

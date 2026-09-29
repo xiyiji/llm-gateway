@@ -99,7 +99,8 @@ class V2Learned:
         clf = self._load()
         vec, _ = featurize(text)
         p_small_ok = float(clf.predict_proba(np.array([vec]))[0][1])
-        if p_small_ok >= 0.5:
+        # retrained routers carry their own cut-off (see retrain_from_live.py)
+        if p_small_ok >= getattr(clf, "small_threshold_", 0.5):
             return RouteDecision(
                 "small", f"model predicts small is sufficient (p={p_small_ok:.2f})",
                 p_small_ok, self.name,
@@ -168,4 +169,8 @@ def build_registry() -> Dict[str, object]:
         registry["v2_learned"] = v2
     if v3.loaded():
         registry["v3_ppo"] = v3
+    live = V2Learned(MODELS_DIR / "v2_live.pkl")  # retrained from judged live traffic
+    if live.loaded():
+        live.name = "v2_live"
+        registry["v2_live"] = live
     return registry

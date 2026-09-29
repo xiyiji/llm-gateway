@@ -33,3 +33,17 @@ auth:
   enabled: false
   # keys:
   #   sk-team-a: {name: "team-a", daily_budget_usd: 5.0}
+
+online_eval:
+  # Judge a sample of live traffic: run the other model on the same request,
+  # compare both answers with a pairwise judge, reroute categories where the
+  # small model stops holding up. Costs an extra call + judge per sample.
+  enabled: false
+  sample_rate: 0.05
+  warmup_per_category: 20
+  judge_budget_usd: 5.0
+  guard_threshold: 0.80
+  guard_window: 50
+  guard_min_samples: 20
+  shadow_routers: ["v1_score", "v2_learned", "v3_ppo"]
+  tracker: auto

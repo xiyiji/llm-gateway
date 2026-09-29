@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 var/
 .env
+mlruns/
+mlartifacts/

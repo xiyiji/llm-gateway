@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from gateway.config import get_config
 from gateway.metrics import UsageStore
+from gateway.online_eval import OnlineEvaluator, Sample, category_of
 from gateway.providers import ChatResult, DeepSeekProvider, ProviderError, ResponseCache
 from gateway.routers import RouteDecision, build_registry
 
@@ -31,6 +32,26 @@ _provider = DeepSeekProvider()
 _usage = UsageStore()
 _registry = build_registry()
 _state = {"active_router": get_config().router.active}
+_evaluator: Optional[OnlineEvaluator] = None
+
+
+def _online() -> Optional[OnlineEvaluator]:
+    """The live-traffic evaluator, created on first use when enabled."""
+    global _evaluator
+    if _evaluator is None and get_config().online_eval.enabled:
+        _evaluator = OnlineEvaluator(_provider, get_config().online_eval)
+        _evaluator.start()
+    return _evaluator
+
+
+def _offer(prompt, messages, category, decision, served_tier, text, cost, cached):
+    evaluator = _online()
+    if evaluator is None or cached or not text or decision.router == "explicit":
+        return
+    evaluator.offer(Sample(prompt=prompt, messages=messages, category=category,
+                           router=decision.router,
+                           decision=getattr(decision, "router_action", decision.action),
+                           served_tier=served_tier, response_text=text, cost_usd=cost))
 
 
 class ChatMessage(BaseModel):
@@ -125,12 +146,37 @@ def activate_router(name: str) -> Dict:
         raise HTTPException(status_code=404, detail=f"router '{name}' not available "
                             f"(loaded: {sorted(_registry.keys())})")
     _state["active_router"] = name
+    if _evaluator is not None:
+        _evaluator.guard.reset_history()
     return {"active": name}
 
 
-def _decide(request: ChatRequest, prompt: str) -> RouteDecision:
+@app.get("/admin/online-eval")
+def online_eval_summary() -> Dict:
+    evaluator = _online()
+    if evaluator is None:
+        return {"enabled": False}
+    names = set(get_config().online_eval.shadow_routers) | {_state["active_router"]}
+    routers = {n: _registry[n] for n in sorted(names) if n in _registry}
+    return {"enabled": True, "active_router": _state["active_router"],
+            **evaluator.summary(routers)}
+
+
+@app.post("/admin/online-eval/drain")
+def online_eval_drain() -> Dict:
+    evaluator = _online()
+    if evaluator is None:
+        raise HTTPException(status_code=409, detail="online_eval is disabled")
+    return {"judged_now": evaluator.drain()}
+
+
+def _decide(request: ChatRequest, prompt: str, category: str = "general") -> RouteDecision:
     if request.model in ("auto", "", None):
-        return _active_router().route(prompt)
+        decision = _active_router().route(prompt)
+        evaluator = _online()
+        if evaluator is not None and get_config().online_eval.guard_enabled:
+            decision = evaluator.guard.apply(decision, category)
+        return decision
     tier = _tier_for_explicit(request.model)
     if tier is None:
         raise HTTPException(status_code=404, detail=f"unknown model '{request.model}'")
@@ -167,7 +213,7 @@ def _completion_body(result: ChatResult, decision: RouteDecision, used_tier: str
 
 
 def _stream_response(request: ChatRequest, messages: List[Dict], decision: RouteDecision,
-                     client_key: str) -> StreamingResponse:
+                     client_key: str, prompt: str = "", category: str = "general") -> StreamingResponse:
     from gateway.providers import price_for
 
     cfg = get_config()
@@ -239,6 +285,7 @@ def _stream_response(request: ChatRequest, messages: List[Dict], decision: Route
                       model=model_name, cached=False, fallback_used=fallback_used,
                       input_tokens=usage["input"], output_tokens=usage["output"],
                       cost_usd=cost, latency_ms=latency_ms, api_key=client_key)
+        _offer(prompt, messages, category, decision, used_tier, "".join(pieces), cost, False)
         final = {"id": cid, "object": "chat.completion.chunk",
                  "created": int(time.time()), "model": model_name,
                  "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
@@ -262,10 +309,11 @@ def chat_completions(request: ChatRequest, authorization: Optional[str] = Header
         raise HTTPException(status_code=422, detail="at least one user message required")
     prompt = user_texts[-1]
     messages = [m.model_dump() for m in request.messages]
-    decision = _decide(request, prompt)
+    category = category_of(prompt)
+    decision = _decide(request, prompt, category)
 
     if request.stream:
-        return _stream_response(request, messages, decision, client_key)
+        return _stream_response(request, messages, decision, client_key, prompt, category)
 
     tiers = [decision.action, "large" if decision.action == "small" else "small"]
     errors: Dict[str, str] = {}
@@ -289,4 +337,6 @@ def chat_completions(request: ChatRequest, authorization: Optional[str] = Header
         input_tokens=result.input_tokens, output_tokens=result.output_tokens,
         cost_usd=result.cost_usd, latency_ms=result.latency_ms, api_key=client_key,
     )
+    _offer(prompt, messages, category, decision, used_tier, result.text,
+           result.cost_usd, result.cached)
     return _completion_body(result, decision, used_tier, fallback_used, errors)

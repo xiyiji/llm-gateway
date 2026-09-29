@@ -125,6 +125,32 @@ Agent workload (5 multi-step tasks, 3 LLM calls each, live API):
 Same accuracy, two-thirds cheaper, forty percent faster, because 9 of 15
 agent steps didn't need the big model.
 
+## After launch: online evaluation
+
+The benchmark says the router is safe on the tasks we chose. Live traffic
+drifts away from those tasks, and providers update models behind the same
+name, so the gateway keeps checking its own routing decision in production.
+
+A small sample of live requests is re-run on the other model and scored by a
+pairwise judge, off the request path. That gives a live win rate for the
+small model per request category, and a quality guard that sends a failing
+category to the large model until the small model holds up again. The same
+judged requests score every router side by side, become labels for the next
+router, and a retrained router ships only if it beats what production serves
+on newer live requests it never saw. Metrics, guard events and router
+versions go to MLflow.
+
+On a simulated traffic shift the benchmark can't see (8 seeds, details in
+[docs/online-eval.md](docs/online-eval.md)):
+
+| | served quality |
+|---|---|
+| same router, same traffic, no guard | 0.68 |
+| with the quality guard | **0.90** |
+
+Where the retrained router passed the promotion gate (4 of 8 seeds), it cut
+cost from $0.84 to $0.71 per 1k requests at 0.93 quality.
+
 ## Architecture
 
 ```
@@ -136,8 +162,13 @@ gateway  --- /v1/chat/completions (OpenAI-compatible)
    |\--- fallback: chosen tier fails -> other tier, errors attached
    |\--- cache: LRU+TTL on full request, real hit counters
    |\--- usage store: per-request cost from actual token counts (SQLite)
+   |\--- quality guard: per-category override from live judgments
    v
 DeepSeek API (deepseek-chat / deepseek-reasoner)
+
+online loop:  sampled responses -> counterfactual on the other tier
+              -> pairwise judge -> judgments (SQLite) -> guard, shadow scores
+              -> retrain_from_live -> promotion gate -> MLflow registry
 
 offline loop: evalsuite -> collect_results (once, $0.05)
               -> train_routers (v2 + v3, seconds, free)
@@ -146,8 +177,9 @@ offline loop: evalsuite -> collect_results (once, $0.05)
 
 Repo map: `gateway/` (api, providers, routers, features, PPO, metrics),
 `evalsuite/` (tasks, verification), `scripts/` (collect, train, benchmark,
-agent demo, load test), `console.py` (Streamlit: traffic, benchmark, agent
-demo), `tests/` (20 offline tests, CI on push).
+agent demo, load test, online-eval demo and retraining), `console.py`
+(Streamlit: traffic, benchmark, agent demo), `tests/` (32 offline tests, CI on
+push).
 
 ## Run it
 
@@ -163,6 +195,10 @@ export DEEPSEEK_API_KEY=sk-...
 ./venv/bin/python scripts/train_routers.py           # v2 + v3, CPU, seconds
 ./venv/bin/python scripts/benchmark_routers.py       # the tables above
 ./venv/bin/python scripts/agent_demo.py              # the agent comparison
+
+# online evaluation (no key needed for the demo)
+./venv/bin/pip install -r requirements-online.txt    # MLflow
+./venv/bin/python scripts/online_eval_demo.py --mlflow --work-dir var/demo
 ```
 
 Switch policies live: `POST /admin/routers/v2_learned`.
@@ -171,4 +207,4 @@ Deployment guide: [DEPLOY.md](DEPLOY.md). Full test data:
 [docs/TEST-REPORT.md](docs/TEST-REPORT.md).
 
 Stack: Python, FastAPI, numpy (PPO implemented from scratch), scikit-learn,
-SQLite, Streamlit, pytest, GitHub Actions, Docker.
+MLflow, SQLite, Streamlit, pytest, GitHub Actions, Docker.
